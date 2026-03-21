@@ -70,9 +70,14 @@ export class QClawAPI {
     }
 
     if (ret === 0 || commonCode === 0) {
+      // 匹配 Python 的 or 语义：空对象 {} 视为 falsy 跳过
+      const nonEmpty = (v: unknown): unknown =>
+        v != null && typeof v === "object" && !Array.isArray(v) && Object.keys(v as Record<string, unknown>).length === 0
+          ? undefined
+          : v;
       const respData =
-        nested(data, "data", "resp", "data") ??
-        nested(data, "data", "data") ??
+        nonEmpty(nested(data, "data", "resp", "data")) ??
+        nonEmpty(nested(data, "data", "data")) ??
         data.data ??
         data;
       return { success: true, data: respData as Record<string, unknown> };
@@ -122,16 +127,19 @@ export class QClawAPI {
   async refreshChannelToken(): Promise<string | null> {
     const result = await this.post("data/4058/forward", {});
     if (result.success) {
-      return (result.data as Record<string, unknown>)?.openclaw_channel_token as string ?? null;
+      const d = result.data as Record<string, unknown>;
+      return (nested(d, "openclaw_channel_token") as string)
+        || (nested(d, "data", "openclaw_channel_token") as string)
+        || null;
     }
     return null;
   }
 
-  /** 生成企微客服专属链接 (cmd_id=4018) */
+  /** 生成微信服务号客服专属链接 (cmd_id=4018) */
   async generateContactLink(openKfId: string): Promise<QClawApiResponse> {
     return this.post("data/4018/forward", {
       guid: this.guid,
-      user_id: this.userId,
+      user_id: Number(this.userId),
       open_id: openKfId,
       contact_type: "open_kfid",
     });

@@ -3,12 +3,6 @@ import { onAgentEvent, type AgentEventPayload } from "../common/agent-events.js"
 import { getWecomRuntime } from "../common/runtime.js";
 import { buildMessageContext } from "./message-context.js";
 
-/** 内容安全审核拦截标记，由 content-security 插件的 fetch 拦截器嵌入伪 SSE 响应中 */
-const SECURITY_BLOCK_MARKER = "<!--CONTENT_SECURITY_BLOCK-->";
-
-/** 安全拦截后返回给微信用户的通用提示文本（不暴露具体拦截原因） */
-const SECURITY_BLOCK_USER_MESSAGE = "抱歉，我无法处理该任务，让我们换个任务试试看？";
-
 // ============================================
 // 工具函数
 // ============================================
@@ -103,7 +97,7 @@ export const handleMessage = async (message: FuwuhaoMessage): Promise<string | n
   // runtime.channel.activity.record 记录频道的活动统计
   // 用于监控、分析、计费等场景
   runtime.channel.activity.record({
-    channel: "wechat-access-unqclawed",      // 频道标识
+    channel: "wechat-openclaw-channel",      // 频道标识
     accountId: "default",    // 账号 ID
     direction: "inbound",    // 方向：inbound=入站（用户发送），outbound=出站（Bot 回复）
   });
@@ -162,41 +156,19 @@ export const handleMessage = async (message: FuwuhaoMessage): Promise<string | n
             // 通常不需要直接返回给用户，仅记录日志
             console.log("[wechat-access] 工具调用结果:", payload);
           } else if (info.kind === "block") {
-            // ============================================
-            // 流式分块回复
-            // ============================================
-            // Agent 生成的增量文本（流式输出）
-            // 累积到 responseText 中
             if (payload.text) {
-              // 检测安全审核拦截标记：替换为通用安全提示，不暴露具体拦截原因
-              if (payload.text.includes(SECURITY_BLOCK_MARKER)) {
-                console.warn("[wechat-access] block 回复中检测到安全审核拦截标记，替换为安全提示");
-                responseText = SECURITY_BLOCK_USER_MESSAGE;
-              } else {
-                responseText = payload.text;
-              }
+              responseText = payload.text;
             }
           } else if (info.kind === "final") {
-            // ============================================
-            // 最终完整回复
-            // ============================================
-            // Agent 生成的完整回复文本
-            // 这是最终返回给用户的内容
             if (payload.text) {
-              // 检测安全审核拦截标记：替换为通用安全提示
-              if (payload.text.includes(SECURITY_BLOCK_MARKER)) {
-                console.warn("[wechat-access] final 回复中检测到安全审核拦截标记，替换为安全提示");
-                responseText = SECURITY_BLOCK_USER_MESSAGE;
-              } else {
-                responseText = payload.text;
-              }
+              responseText = payload.text;
             }
             console.log("[wechat-access] 最终回复:", payload);
           }
 
           // 记录出站活动统计（Bot 回复）
           runtime.channel.activity.record({
-            channel: "wechat-access-unqclawed",
+            channel: "wechat-openclaw-channel",
             accountId: "default",
             direction: "outbound",  // 出站：Bot 发送给用户
           });
@@ -322,7 +294,7 @@ export const handleMessageStream = async (
   // 4. 记录频道活动统计
   // ============================================
   runtime.channel.activity.record({
-    channel: "wechat-access-unqclawed",
+    channel: "wechat-openclaw-channel",
     accountId: "default",
     direction: "inbound",
   });
@@ -364,16 +336,6 @@ const unsubscribeAgentEvents = onAgentEvent((evt: AgentEventPayload) => {
         lastEmittedText = text;
       } else if (delta) {
         lastEmittedText += delta;
-      }
-      
-      // 检测安全审核拦截标记：流式文本中包含拦截标记时，停止继续推送
-      if (textToSend && textToSend.includes(SECURITY_BLOCK_MARKER)) {
-        console.warn("[wechat-access] 流式文本中检测到安全审核拦截标记，停止推送");
-        return;
-      }
-      if (lastEmittedText.includes(SECURITY_BLOCK_MARKER)) {
-        console.warn("[wechat-access] 累积文本中检测到安全审核拦截标记，停止推送");
-        return;
       }
 
       if (textToSend) {
@@ -491,12 +453,7 @@ const unsubscribeAgentEvents = onAgentEvent((evt: AgentEventPayload) => {
             });
           } else if (info.kind === "block") {
             // 流式分块回复
-            // 检测安全审核拦截标记：替换为通用安全提示
-            let blockText = payload.text ? stripThinkingTags(payload.text) : payload.text;
-            if (blockText && blockText.includes(SECURITY_BLOCK_MARKER)) {
-              console.warn("[wechat-access] 流式 block deliver 中检测到安全审核拦截标记，替换为安全提示");
-              blockText = SECURITY_BLOCK_USER_MESSAGE;
-            }
+            const blockText = payload.text ? stripThinkingTags(payload.text) : payload.text;
             onChunk({
               type: "block",
               text: blockText,
@@ -504,12 +461,7 @@ const unsubscribeAgentEvents = onAgentEvent((evt: AgentEventPayload) => {
             });
           } else if (info.kind === "final") {
             // 最终完整回复
-            // 检测安全审核拦截标记：替换为通用安全提示
-            let finalText = payload.text ? stripThinkingTags(payload.text) : payload.text;
-            if (finalText && finalText.includes(SECURITY_BLOCK_MARKER)) {
-              console.warn("[wechat-access] 流式 final deliver 中检测到安全审核拦截标记，替换为安全提示");
-              finalText = SECURITY_BLOCK_USER_MESSAGE;
-            }
+            const finalText = payload.text ? stripThinkingTags(payload.text) : payload.text;
             onChunk({
               type: "final",
               text: finalText,
@@ -519,7 +471,7 @@ const unsubscribeAgentEvents = onAgentEvent((evt: AgentEventPayload) => {
 
           // 记录出站活动
           runtime.channel.activity.record({
-            channel: "wechat-access-unqclawed",
+            channel: "wechat-openclaw-channel",
             accountId: "default",
             direction: "outbound",
           });
